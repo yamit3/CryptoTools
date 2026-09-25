@@ -1,0 +1,17 @@
+{
+  'extensions': [
+    {
+      'extension': 'immutableOwner'
+    }
+  ],
+  'isNative': False,
+  'mint': 'J7UCzsyK813soCFRMDVPtgzD4SyBrim5r2AV7jFkWuCa',
+  'owner': 'FLKBGsMamEnMCDRXQEXiSyw85ixES3qd2WSWKeVENKFk',
+  'state': 'initialized',
+  'tokenAmount': {
+    'amount': '50000000000',
+    'decimals': 6,
+    'uiAmount': 50000.0,
+    'uiAmountString': '50000'
+  }
+}
