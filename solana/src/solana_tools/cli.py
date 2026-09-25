@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from uuid import NIL
 
+import math
 from solana.constants import LAMPORTS_PER_SOL
 from solana.rpc.async_api import AsyncClient
 from solders.solders import Pubkey
@@ -20,6 +21,7 @@ from typing import Final, Tuple
 ACCOUNTS_PER_TRANSACTION: Final = 20
 MIN_JITO_TIP: Final = 1000
 JITO_RPC:  Final = 'https://mainnet.block-engine.jito.wtf'
+JITO_TRANSACTIONS_PER_BUNDLE: Final = 5
 SOLANA_RPC:  Final = 'https://api.mainnet.solana.com'
 
 
@@ -89,16 +91,21 @@ async def show_balance() -> None:
     client = AsyncClient(SOLANA_RPC)
     accounts = await get_zero_balance_token_accounts(Pubkey.from_string(wallet_int), client)
 
-    cont, lamports = 0, 0
+    lamports = 0
 
     for account in accounts:
         lamports += account.lamports
 
+
+    cost  = ( math.ceil(math.ceil(len(accounts) / ACCOUNTS_PER_TRANSACTION) / JITO_TRANSACTIONS_PER_BUNDLE) * MIN_JITO_TIP)
+
+
     colors = ConsoleColors()
     print(colors.title("Balance information"))
-    print(colors.section("    closable accounts:\t") + colors.data(f"{len(accounts)}"))
-    print(colors.section("    recoverable sol:\t") + colors.data(f"{lamports / LAMPORTS_PER_SOL}"))
-    print(colors.section("    lamports:\t\t") + colors.data(f"{lamports}"))
+    print(colors.section("    closable accounts:\t\t") + colors.data(f"{len(accounts)}"))
+    print(colors.section("    recoverable SOL:\t\t") + colors.data(f"{lamports / LAMPORTS_PER_SOL}"))
+    print(colors.section("    lamports:\t\t\t") + colors.data(f"{lamports}"))
+    print(colors.section("    approximate close costs:\t") + colors.data(f"{cost / LAMPORTS_PER_SOL :.6f} SOL"))
 
 
 async def get_zero_balance_token_accounts(wallet: Pubkey, client: AsyncClient) -> Sequence[TokenAccount]:
