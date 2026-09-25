@@ -1,26 +1,83 @@
+import argparse
 import asyncio
+import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import Enum
 from uuid import NIL
 
 from solana.constants import LAMPORTS_PER_SOL
 from solana.rpc.async_api import AsyncClient
 from solders.solders import Pubkey
 from solana.rpc.models import MemcmpOpts, TokenAccountOpts
+from typing import Final, Tuple
 
 # Cluster	Public RPC endpoint	Description
 # Mainnet	https://api.mainnet.solana.com	Production network using real SOL.
 # Devnet	https://api.devnet.solana.com	Developer testing network. Use the Solana Faucet to get Devnet SOL.
 # Testnet	https://api.testnet.solana.com	Validator testing network.
 
-TOKEN_2022_PROGRAM_ID = Pubkey.from_string("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
-TOKEN_KEG_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+ACCOUNTS_PER_TRANSACTION: Final = 20
+MIN_JITO_TIP: Final = 1000
+JITO_RPC:  Final = 'https://mainnet.block-engine.jito.wtf'
+SOLANA_RPC:  Final = 'https://api.mainnet.solana.com'
 
+
+def build_parser() -> argparse.ArgumentParser:
+    """Construct the full argument parser."""
+    parser = argparse.ArgumentParser(
+        prog="solana-tools",
+        description=(
+            "SOLANA convenience tools for traders"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
+    sub.add_parser("show", help="Retrieve all zero balance accounts and report")
+    sub.add_parser("close_accounts", help="Close all zero balance accounts")
+
+    return parser
 
 @dataclass(frozen=True)
 class TokenAccount:
     address: Pubkey
     lamports: int
+    type: TokenType
+
+
+class TokenType(Enum):
+    TOKEN_KEG  = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+    TOKEN_2022 = Pubkey.from_string("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
+
+    def __init__(self, address):
+        self.address = address
+
+class ConsoleColors:
+
+    def __init__(self):
+        from _colorize import can_colorize, decolor, get_theme
+
+        if can_colorize():
+            self._theme = get_theme(force_color=True).argparse
+            self._decolor = decolor
+        else:
+            self._theme = get_theme(force_no_color=True).argparse
+            self._decolor = lambda x: x
+
+    def title(self, text: str) -> str:
+        return f"{self._theme.prog_extra}{text}{self._theme.reset}"
+
+
+    def section(self, text: str) -> str:
+        return f"{self._theme.summary_short_option}{text}{self._theme.reset}"
+
+    def data(self, text: str) -> str:
+        return f"{self._theme.summary_long_option}{text}{self._theme.reset}"
+
+
+
+
 
 
 async def show_balance() -> None:
@@ -29,20 +86,22 @@ async def show_balance() -> None:
         print("Wallet address is not provided.")
         return
 
-    client = AsyncClient("https://api.mainnet.solana.com")
-    accounts = await list_zero_balance_accounts(Pubkey.from_string(wallet_int), client)
+    client = AsyncClient(SOLANA_RPC)
+    accounts = await get_zero_balance_token_accounts(Pubkey.from_string(wallet_int), client)
 
     cont, lamports = 0, 0
 
     for account in accounts:
         lamports += account.lamports
 
-    print(f"total zero token accounts: {cont}")
-    print(f"sol: {lamports / LAMPORTS_PER_SOL}")
-    print(f"lamports: {lamports}")
+    colors = ConsoleColors()
+    print(colors.title("Balance information"))
+    print(colors.section("    closable accounts:\t") + colors.data(f"{len(accounts)}"))
+    print(colors.section("    recoverable sol:\t") + colors.data(f"{lamports / LAMPORTS_PER_SOL}"))
+    print(colors.section("    lamports:\t\t") + colors.data(f"{lamports}"))
 
 
-async def list_zero_balance_accounts(wallet: Pubkey, client: AsyncClient) -> Sequence[TokenAccount]:
+async def get_zero_balance_token_accounts(wallet: Pubkey, client: AsyncClient) -> Sequence[TokenAccount]:
 
 
     if not await client.is_connected():
@@ -50,23 +109,41 @@ async def list_zero_balance_accounts(wallet: Pubkey, client: AsyncClient) -> Seq
 
     zero_balance_accounts = []
 
-    for token_program in [TOKEN_2022_PROGRAM_ID, TOKEN_KEG_PROGRAM_ID]:
+    for token_program in TokenType:
         token_accounts = await client.get_token_accounts_by_owner_json_parsed(
             owner = wallet,
-            opts = TokenAccountOpts( program_id=token_program, encoding="jsonParsed" )
+            opts = TokenAccountOpts( program_id= token_program.address, encoding="jsonParsed" )
         )
 
         for account in token_accounts.value:
             if int(account.account.data.parsed['info']['tokenAmount']['uiAmount']) == 0:
-                zero_balance_accounts.append( TokenAccount(address = account.pubkey, lamports = account.account.lamports) )
+                zero_balance_accounts.append(
+                    TokenAccount(
+                        address = account.pubkey,
+                        lamports = account.account.lamports,
+                        type = token_program))
 
 
     return zero_balance_accounts
 
 
-def main() -> None:
-    asyncio.run(show_balance())
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the CLI.
+
+    Args:
+        argv: Argument list, defaulting to ``sys.argv[1:]``.
+
+    Returns:
+        A process exit code.
+    """
+    args = build_parser().parse_args(argv)
+
+
+    match args.command:
+        case "show":
+            asyncio.run(show_balance())
+
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
