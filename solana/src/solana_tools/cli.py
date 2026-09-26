@@ -7,9 +7,11 @@ from enum import Enum
 from uuid import NIL
 
 import math
+
+from jito_py_rpc import JitoJsonRpcSDK
 from solana.constants import LAMPORTS_PER_SOL
 from solana.rpc.async_api import AsyncClient
-from solders.solders import Pubkey
+from solders.solders import Pubkey, Keypair
 from solana.rpc.models import MemcmpOpts, TokenAccountOpts
 from typing import Final, Tuple
 
@@ -20,7 +22,7 @@ from typing import Final, Tuple
 
 ACCOUNTS_PER_TRANSACTION: Final = 20
 MIN_JITO_TIP: Final = 1000
-JITO_RPC:  Final = 'https://mainnet.block-engine.jito.wtf'
+JITO_RPC_SDK:  Final = 'https://mainnet.block-engine.jito.wtf/api/v1'
 JITO_TRANSACTIONS_PER_BUNDLE: Final = 5
 SOLANA_RPC:  Final = 'https://api.mainnet.solana.com'
 
@@ -77,6 +79,23 @@ class ConsoleColors:
     def data(self, text: str) -> str:
         return f"{self._theme.summary_long_option}{text}{self._theme.reset}"
 
+
+
+
+async def close_all_accounts() -> None:
+
+    colors = ConsoleColors()
+    private_key = Keypair.from_base58_string( input("Wallet private key: ").strip() )
+    jito_client = JitoJsonRpcSDK(url=JITO_RPC_SDK)
+    client = AsyncClient(SOLANA_RPC)
+
+    accounts = await get_zero_balance_token_accounts(private_key.pubkey(), client)
+
+    if len(accounts) == 0:
+        print(colors.title("No accounts found"))
+        return
+
+    jito_tip_account = Pubkey.from_string(jito_client.get_random_tip_account())
 
 
 
@@ -146,9 +165,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
 
-    match args.command:
-        case "show":
-            asyncio.run(show_balance())
+    try:
+        match args.command:
+            case "show":
+                asyncio.run(show_balance())
+            case "close_accounts":
+                asyncio.run(close_all_accounts())
+    except Exception as e:
+        print(e)
+        return 1
+    return 0
 
 
 
