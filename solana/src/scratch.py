@@ -11,8 +11,8 @@ async def main():
     print(f"batch_l1: {batch_l1}")
 
     jito_client = JitoJsonRpcSDK(url="https://mainnet.block-engine.jito.wtf/api/v1")
-    response = jito_client.get_inflight_bundle_statuses([''])
-
+    response = jito_client.get_inflight_bundle_statuses(['c5af456d35d9786d916bc5bbeee91083b50eedaee1fff8c6a3b96111fca8b348'])
+    print(response)
 
 
 def chunk_it(lst: list, batch_size):

@@ -29,7 +29,7 @@ from spl.token.models import CloseAccountParams
 # Testnet	https://api.testnet.solana.com	Validator testing network.
 
 MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION: Final[int] = 20
-COMPUTE_UNITS_PER_INSTRUCTION: Final[int] = 3000
+COMPUTE_UNITS_PER_INSTRUCTION: Final[int] = 300
 MIN_JITO_TIP: Final[int] = 1000
 JITO_RPC_SDK:  Final[str] = 'https://mainnet.block-engine.jito.wtf/api/v1'
 JITO_TRANSACTIONS_PER_BUNDLE: Final[int] = 5
@@ -121,15 +121,15 @@ async def close_all_accounts() -> None:
                 owner= private_key.pubkey()
             ))
         )
-    bundle_ids = []
+    trx_ids = []
     processed_accounts = 0
-    for chunk in batched(batched(close_instructions, MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION), JITO_TRANSACTIONS_PER_BUNDLE):
+    for chunk in batched(close_instructions, MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION):
         bundle = []
 
         for index, instruction_set in enumerate(chunk):
             processed_accounts =+ len(instruction_set)
             base_instructions = [
-                set_compute_unit_limit(COMPUTE_UNITS_PER_INSTRUCTION * ( MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION + 3))
+                set_compute_unit_limit(COMPUTE_UNITS_PER_INSTRUCTION * ( len(instruction_set) + 3))
             ]
             if index == 0:
                 base_instructions.append(
@@ -148,16 +148,16 @@ async def close_all_accounts() -> None:
             )
             transaction = Transaction.new_unsigned(message)
             transaction.sign([private_key], recent_blockhash.value.blockhash)
-            bundle.append(base64.b64encode(bytes(transaction)).decode('ascii'))
 
-        result = jito_client.send_bundle(bundle)
-        if result['success']:
-            bundle_ids.append(result['data']['result'])
-            print(f'\rAccounts Processed: {processed_accounts}/{len(close_instructions)}', end='')
-        else:
-            print(f"Failed to send bundle: {result.get('error', 'Unknown error')}")
+            result = jito_client.send_txn( params = base64.b64encode(bytes(transaction)).decode('ascii'), bundleOnly= False)
 
-    print(f"\nBundle IDs: {bundle_ids}")
+            if result['success']:
+                trx_ids.append(result['data']['result'])
+                print(f'\rAccounts Processed: {processed_accounts}/{len(close_instructions)}', end='')
+            else:
+                print(f"\nFailed to send transaction: {result.get('error', 'Unknown error')}")
+
+    print(f"\nTransaction IDs: {trx_ids}")
     await client.close()
 
 
