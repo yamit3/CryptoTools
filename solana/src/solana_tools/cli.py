@@ -1,7 +1,9 @@
 import argparse
 import asyncio
 import base64
+import getpass
 import math
+import traceback
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
@@ -95,11 +97,12 @@ class ConsoleColors:
 async def close_all_accounts() -> None:
 
     colors = ConsoleColors()
-    private_key = Keypair.from_base58_string( input("Wallet private key: ").strip() )
+    private_key = Keypair.from_base58_string(getpass.getpass("Wallet private key: ", echo_char='*').strip())
     jito_client = JitoJsonRpcSDK(url=JITO_RPC_SDK)
     client = AsyncClient(SOLANA_RPC)
 
     accounts = await get_zero_balance_token_accounts(private_key.pubkey(), client)
+    print(f"address: {private_key.pubkey()}")
 
     if len(accounts) == 0:
         print(colors.title("No accounts found"))
@@ -123,10 +126,10 @@ async def close_all_accounts() -> None:
     for chunk in batched(batched(close_instructions, MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION), JITO_TRANSACTIONS_PER_BUNDLE):
         bundle = []
 
-        for index, instruction_set in chunk:
+        for index, instruction_set in enumerate(chunk):
             processed_accounts =+ len(instruction_set)
             base_instructions = [
-                set_compute_unit_limit(COMPUTE_UNITS_PER_INSTRUCTION * (len(instruction_set) + 3))
+                set_compute_unit_limit(COMPUTE_UNITS_PER_INSTRUCTION * ( MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION + 3))
             ]
             if index == 0:
                 base_instructions.append(
@@ -139,7 +142,7 @@ async def close_all_accounts() -> None:
 
             recent_blockhash = await client.get_latest_blockhash()
             message = Message.new_with_blockhash(
-                base_instructions + instruction_set ,
+                base_instructions + list(instruction_set) ,
                 private_key.pubkey(),
                 recent_blockhash.value.blockhash
             )
@@ -150,11 +153,11 @@ async def close_all_accounts() -> None:
         result = jito_client.send_bundle(bundle)
         if result['success']:
             bundle_ids.append(result['data']['result'])
-            print(f'\rAccounts Processed: {processed_accounts} / {len(close_instructions)}', end='')
+            print(f'\rAccounts Processed: {processed_accounts}/{len(close_instructions)}', end='')
         else:
             print(f"Failed to send bundle: {result.get('error', 'Unknown error')}")
 
-    print(f"Bundle IDs: {bundle_ids}")
+    print(f"\nBundle IDs: {bundle_ids}")
     await client.close()
 
 
@@ -229,6 +232,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             case "close_accounts":
                 asyncio.run(close_all_accounts())
     except Exception as e:
+        # traceback.print_exc()
         print(ConsoleColors().error(e.__str__()))
         return 1
     return 0
