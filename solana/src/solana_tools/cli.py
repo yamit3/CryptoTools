@@ -1,30 +1,37 @@
 import argparse
 import asyncio
-import sys
+import base64
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from uuid import NIL
-
-import math
+from itertools import batched
+from typing import Final
 
 from jito_py_rpc import JitoJsonRpcSDK
 from solana.constants import LAMPORTS_PER_SOL
 from solana.rpc.async_api import AsyncClient
-from solders.solders import Pubkey, Keypair
-from solana.rpc.models import MemcmpOpts, TokenAccountOpts
-from typing import Final, Tuple
+from solana.rpc.models import TokenAccountOpts
+
+from solders.solders import Pubkey, Keypair, Message
+from solders.compute_budget import set_compute_unit_limit
+from solders.system_program import TransferParams, transfer
+from solders.transaction import Transaction
+
+import spl.token.instructions as spl_token
+from spl.token.models import CloseAccountParams
 
 # Cluster	Public RPC endpoint	Description
 # Mainnet	https://api.mainnet.solana.com	Production network using real SOL.
 # Devnet	https://api.devnet.solana.com	Developer testing network. Use the Solana Faucet to get Devnet SOL.
 # Testnet	https://api.testnet.solana.com	Validator testing network.
 
-ACCOUNTS_PER_TRANSACTION: Final = 20
-MIN_JITO_TIP: Final = 1000
-JITO_RPC_SDK:  Final = 'https://mainnet.block-engine.jito.wtf/api/v1'
-JITO_TRANSACTIONS_PER_BUNDLE: Final = 5
-SOLANA_RPC:  Final = 'https://api.mainnet.solana.com'
+MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION: Final[int] = 20
+COMPUTE_UNITS_PER_INSTRUCTION: Final[int] = 3000
+MIN_JITO_TIP: Final[int] = 1000
+JITO_RPC_SDK:  Final[str] = 'https://mainnet.block-engine.jito.wtf/api/v1'
+JITO_TRANSACTIONS_PER_BUNDLE: Final[int] = 5
+SOLANA_RPC:  Final[str] = 'https://api.mainnet.solana.com'
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -39,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
     sub.add_parser("show", help="Retrieve all zero balance accounts and report")
-    sub.add_parser("close_accounts", help="Close all zero balance accounts")
+    sub.add_parser("close_accounts", help="Close all zero balance token accounts")
 
     return parser
 
@@ -47,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
 class TokenAccount:
     address: Pubkey
     lamports: int
-    type: TokenType
+    program_id: Pubkey
 
 
 class TokenType(Enum):
@@ -63,21 +70,24 @@ class ConsoleColors:
         from _colorize import can_colorize, decolor, get_theme
 
         if can_colorize():
-            self._theme = get_theme(force_color=True).argparse
-            self._decolor = decolor
-        else:
-            self._theme = get_theme(force_no_color=True).argparse
+            self._theme = get_theme(force_color=True)
             self._decolor = lambda x: x
+        else:
+            self._theme = get_theme(force_no_color=True)
+            self._decolor = decolor
 
     def title(self, text: str) -> str:
-        return f"{self._theme.prog_extra}{text}{self._theme.reset}"
+        return self._decolor(f"{self._theme.argparse.prog_extra}{text}{self._theme.argparse.reset}")
 
 
     def section(self, text: str) -> str:
-        return f"{self._theme.summary_short_option}{text}{self._theme.reset}"
+        return self._decolor(f"{self._theme.argparse.summary_short_option}{text}{self._theme.argparse.reset}")
 
     def data(self, text: str) -> str:
-        return f"{self._theme.summary_long_option}{text}{self._theme.reset}"
+        return self._decolor(f"{self._theme.argparse.summary_long_option}{text}{self._theme.argparse.reset}")
+
+    def error(self, text: str) -> str:
+        return self._decolor(f"{self._theme.traceback.error_highlight}{text}{self._theme.argparse.reset}")
 
 
 
@@ -97,11 +107,58 @@ async def close_all_accounts() -> None:
 
     jito_tip_account = Pubkey.from_string(jito_client.get_random_tip_account())
 
+    close_instructions = []
+
+    for token_account in accounts:
+        close_instructions.append( spl_token.close_account(
+            CloseAccountParams(
+                program_id= token_account.program_id,
+                account= token_account.address,
+                dest= private_key.pubkey(),
+                owner= private_key.pubkey()
+            ))
+        )
+    bundle_ids = []
+    processed_accounts = 0
+    for chunk in batched(batched(close_instructions, MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION), JITO_TRANSACTIONS_PER_BUNDLE):
+        bundle = []
+
+        for index, instruction_set in chunk:
+            processed_accounts =+ len(instruction_set)
+            base_instructions = [
+                set_compute_unit_limit(COMPUTE_UNITS_PER_INSTRUCTION * (len(instruction_set) + 3))
+            ]
+            if index == 0:
+                base_instructions.append(
+                    transfer( TransferParams(
+                        from_pubkey= private_key.pubkey(),
+                        to_pubkey= jito_tip_account,
+                        lamports= MIN_JITO_TIP
+                    ))
+                )
+
+            recent_blockhash = await client.get_latest_blockhash()
+            message = Message.new_with_blockhash(
+                base_instructions + instruction_set ,
+                private_key.pubkey(),
+                recent_blockhash.value.blockhash
+            )
+            transaction = Transaction.new_unsigned(message)
+            transaction.sign([private_key], recent_blockhash.value.blockhash)
+            bundle.append(base64.b64encode(bytes(transaction)).decode('ascii'))
+
+        result = jito_client.send_bundle(bundle)
+        if result['success']:
+            bundle_ids.append(result['data']['result'])
+            print(f'\rAccounts Processed: {processed_accounts} / {len(close_instructions)}', end='')
+        else:
+            print(f"Failed to send bundle: {result.get('error', 'Unknown error')}")
+
+    print(f"Bundle IDs: {bundle_ids}")
+    await client.close()
 
 
-
-
-async def show_balance() -> None:
+async def show_wallet_status() -> None:
     wallet_int =  input("Wallet address: ").strip()
     if not wallet_int:
         print("Wallet address is not provided.")
@@ -116,7 +173,7 @@ async def show_balance() -> None:
         lamports += account.lamports
 
 
-    cost  = ( math.ceil(math.ceil(len(accounts) / ACCOUNTS_PER_TRANSACTION) / JITO_TRANSACTIONS_PER_BUNDLE) * MIN_JITO_TIP)
+    cost  = (math.ceil(math.ceil(len(accounts) / MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION) / JITO_TRANSACTIONS_PER_BUNDLE) * MIN_JITO_TIP)
 
 
     colors = ConsoleColors()
@@ -147,7 +204,7 @@ async def get_zero_balance_token_accounts(wallet: Pubkey, client: AsyncClient) -
                     TokenAccount(
                         address = account.pubkey,
                         lamports = account.account.lamports,
-                        type = token_program))
+                        program_id= token_program.address))
 
 
     return zero_balance_accounts
@@ -168,11 +225,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         match args.command:
             case "show":
-                asyncio.run(show_balance())
+                asyncio.run(show_wallet_status())
             case "close_accounts":
                 asyncio.run(close_all_accounts())
     except Exception as e:
-        print(e)
+        print(ConsoleColors().error(e.__str__()))
         return 1
     return 0
 
