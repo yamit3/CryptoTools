@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import base64
 import getpass
+import json
 import math
 import traceback
 from collections.abc import Sequence
@@ -9,7 +10,9 @@ from dataclasses import dataclass
 from enum import Enum
 from itertools import batched
 from typing import Final
+from uuid import NIL
 
+import requests
 from jito_py_rpc import JitoJsonRpcSDK
 from solana.constants import LAMPORTS_PER_SOL
 from solana.rpc.async_api import AsyncClient
@@ -29,7 +32,7 @@ from spl.token.models import CloseAccountParams
 # Testnet	https://api.testnet.solana.com	Validator testing network.
 
 MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION: Final[int] = 20
-COMPUTE_UNITS_PER_INSTRUCTION: Final[int] = 3000
+COMPUTE_UNITS_PER_INSTRUCTION: Final[int] = 300
 MIN_JITO_TIP: Final[int] = 1000
 JITO_RPC_SDK:  Final[str] = 'https://mainnet.block-engine.jito.wtf/api/v1'
 JITO_TRANSACTIONS_PER_BUNDLE: Final[int] = 5
@@ -129,7 +132,7 @@ async def close_all_accounts() -> None:
         for index, instruction_set in enumerate(chunk):
             processed_accounts =+ len(instruction_set)
             base_instructions = [
-                set_compute_unit_limit(COMPUTE_UNITS_PER_INSTRUCTION * ( MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION + 3))
+                set_compute_unit_limit(COMPUTE_UNITS_PER_INSTRUCTION * ( len(instruction_set) + 3))
             ]
             if index == 0:
                 base_instructions.append(
