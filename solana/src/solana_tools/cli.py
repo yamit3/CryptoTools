@@ -126,19 +126,17 @@ async def close_all_accounts() -> None:
     for chunk in batched(close_instructions, MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION):
         bundle = []
 
-        for index, instruction_set in enumerate(chunk):
+        for  instruction_set in chunk:
             processed_accounts =+ len(instruction_set)
             base_instructions = [
-                set_compute_unit_limit(COMPUTE_UNITS_PER_INSTRUCTION * ( len(instruction_set) + 3))
+                set_compute_unit_limit(COMPUTE_UNITS_PER_INSTRUCTION * ( len(instruction_set) + 3)),
+                # jito tip
+                transfer(TransferParams(
+                    from_pubkey=private_key.pubkey(),
+                    to_pubkey=jito_tip_account,
+                    lamports=MIN_JITO_TIP
+                ))
             ]
-            if index == 0:
-                base_instructions.append(
-                    transfer( TransferParams(
-                        from_pubkey= private_key.pubkey(),
-                        to_pubkey= jito_tip_account,
-                        lamports= MIN_JITO_TIP
-                    ))
-                )
 
             recent_blockhash = await client.get_latest_blockhash()
             message = Message.new_with_blockhash(
@@ -176,7 +174,7 @@ async def show_wallet_status() -> None:
         lamports += account.lamports
 
 
-    cost  = (math.ceil(math.ceil(len(accounts) / MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION) / JITO_TRANSACTIONS_PER_BUNDLE) * MIN_JITO_TIP)
+    cost  = math.ceil(math.ceil(len(accounts) / MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION)) * MIN_JITO_TIP
 
 
     colors = ConsoleColors()
