@@ -146,7 +146,8 @@ async def close_all_accounts() -> None:
 
         processed_accounts =+ len(instruction_set)
         base_instructions = [
-            set_compute_unit_limit(COMPUTE_UNITS_PER_INSTRUCTION * ( len(instruction_set) + 2 )),
+            # not needed.
+            # set_compute_unit_limit(COMPUTE_UNITS_PER_INSTRUCTION * ( len(instruction_set) + 2 )),
             # jito tip
             transfer(TransferParams(
                 from_pubkey=private_key.pubkey(),
