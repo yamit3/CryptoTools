@@ -92,6 +92,25 @@ class ConsoleColors:
         return self._decolor(f"{self._theme.traceback.error_highlight}{text}{self._theme.argparse.reset}")
 
 
+async def get_min_transaction_fee( client: AsyncClient) -> int:
+    # 1. Fetch the latest blockhash
+    blockhash_resp = await client.get_latest_blockhash()
+    recent_blockhash = blockhash_resp.value.blockhash
+
+    # 2. Build a dummy transfer instruction to compile into a message
+    from_wallet = Pubkey.new_unique()
+    ix = transfer(TransferParams(
+        from_pubkey=from_wallet,
+        to_pubkey=Pubkey.new_unique(),
+        lamports=1000
+    ))
+
+    # 3. Create the message layout
+    message = Message.new_with_blockhash([ix], from_wallet, recent_blockhash)
+
+    # 4. Fetch fee for this specific layout
+    fee_resp = await client.get_fee_for_message(message)
+    return fee_resp.value or 0
 
 
 async def close_all_accounts() -> None:
@@ -170,11 +189,14 @@ async def show_wallet_status() -> None:
 
     lamports = 0
 
+    min_processing_fee = await get_min_transaction_fee(client)
+
+
     for account in accounts:
         lamports += account.lamports
 
 
-    cost  = math.ceil(math.ceil(len(accounts) / MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION)) * MIN_JITO_TIP
+    cost  = math.ceil(math.ceil(len(accounts) / MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION)) * ( MIN_JITO_TIP + min_processing_fee )
 
 
     colors = ConsoleColors()
