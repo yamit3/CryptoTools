@@ -142,37 +142,37 @@ async def close_all_accounts() -> None:
         )
     trx_ids = []
     processed_accounts = 0
-    for chunk in batched(close_instructions, MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION):
-        bundle = []
+    for instruction_set in batched(close_instructions, MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION):
 
-        for  instruction_set in chunk:
-            processed_accounts =+ len(instruction_set)
-            base_instructions = [
-                set_compute_unit_limit(COMPUTE_UNITS_PER_INSTRUCTION * ( len(instruction_set) + 3)),
-                # jito tip
-                transfer(TransferParams(
-                    from_pubkey=private_key.pubkey(),
-                    to_pubkey=jito_tip_account,
-                    lamports=MIN_JITO_TIP
-                ))
-            ]
+        processed_accounts =+ len(instruction_set)
+        base_instructions = [
+            set_compute_unit_limit(COMPUTE_UNITS_PER_INSTRUCTION * ( len(instruction_set) + 2 )),
+            # jito tip
+            transfer(TransferParams(
+                from_pubkey=private_key.pubkey(),
+                to_pubkey=jito_tip_account,
+                lamports=MIN_JITO_TIP
+            ))
+        ]
 
-            recent_blockhash = await client.get_latest_blockhash()
-            message = Message.new_with_blockhash(
-                base_instructions + list(instruction_set) ,
-                private_key.pubkey(),
-                recent_blockhash.value.blockhash
-            )
-            transaction = Transaction.new_unsigned(message)
-            transaction.sign([private_key], recent_blockhash.value.blockhash)
+        recent_blockhash = await client.get_latest_blockhash()
+        message = Message.new_with_blockhash(
+            base_instructions + list(instruction_set) ,
+            private_key.pubkey(),
+            recent_blockhash.value.blockhash
+        )
+        transaction = Transaction.new_unsigned(message)
+        transaction.sign([private_key], recent_blockhash.value.blockhash)
 
-            result = jito_client.send_txn( params = base64.b64encode(bytes(transaction)).decode('ascii'), bundleOnly= False)
+        result = jito_client.send_txn( params = base64.b64encode(bytes(transaction)).decode('ascii'), bundleOnly= False)
 
-            if result['success']:
-                trx_ids.append(result['data']['result'])
-                print(f'\rAccounts Processed: {processed_accounts}/{len(close_instructions)}', end='')
-            else:
-                print(f"\nFailed to send transaction: {result.get('error', 'Unknown error')}")
+        if result['success']:
+            trx_ids.append(result['data']['result'])
+            print(f'\rAccounts Processed: {processed_accounts}/{len(close_instructions)}', end='')
+        else:
+            print(f"\nFailed to send transaction: {result.get('error', 'Unknown error')}")
+        # JITO's limit, max transactions/second = 1
+        await asyncio.sleep(1)
 
     print(f"\nTransaction IDs: {trx_ids}")
     await client.close()
