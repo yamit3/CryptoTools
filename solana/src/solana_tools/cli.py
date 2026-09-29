@@ -88,6 +88,9 @@ class ConsoleColors:
     def data(self, text: str) -> str:
         return self._decolor(f"{self._theme.argparse.summary_long_option}{text}{self._theme.argparse.reset}")
 
+    def summary(self, text: str) -> str:
+        return self._decolor(f"{self._theme.argparse.summary_label}{text}{self._theme.argparse.reset}")
+
     def error(self, text: str) -> str:
         return self._decolor(f"{self._theme.traceback.error_highlight}{text}{self._theme.argparse.reset}")
 
@@ -192,9 +195,13 @@ async def show_wallet_status() -> None:
 
     min_processing_fee = await get_min_transaction_fee(client)
 
+    keg_accounts = 0
+    twenty_twenty_accounts = 0
 
     for account in accounts:
         lamports += account.lamports
+        keg_accounts +=  1 if account.program_id == TokenType.TOKEN_KEG.address else 0
+        twenty_twenty_accounts +=  1 if account.program_id == TokenType.TOKEN_2022.address else 0
 
 
     cost  = math.ceil(math.ceil(len(accounts) / MAX_CLOSE_INSTRUCTIONS_PER_TRANSACTION)) * ( MIN_JITO_TIP + min_processing_fee )
@@ -202,7 +209,7 @@ async def show_wallet_status() -> None:
 
     colors = ConsoleColors()
     print(colors.title("Balance information"))
-    print(colors.section("    closable accounts:\t\t") + colors.data(f"{len(accounts)}"))
+    print(colors.section("    closable accounts:\t\t") + colors.data(f"{len(accounts)} =>  " + colors.summary(f"{keg_accounts} token-keg + {twenty_twenty_accounts} token-2020")))
     print(colors.section("    recoverable SOL:\t\t") + colors.data(f"{lamports / LAMPORTS_PER_SOL}"))
     print(colors.section("    lamports:\t\t\t") + colors.data(f"{lamports}"))
     print(colors.section("    approximate close costs:\t") + colors.data(f"{cost / LAMPORTS_PER_SOL :.6f} SOL"))
