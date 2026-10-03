@@ -230,7 +230,7 @@ async def get_zero_balance_token_accounts(wallet: Pubkey, client: AsyncClient) -
         )
 
         for account in token_accounts.value:
-            if int(account.account.data.parsed['info']['tokenAmount']['uiAmount']) == 0:
+            if float(account.account.data.parsed['info']['tokenAmount']['uiAmount']) == 0:
                 zero_balance_accounts.append(
                     TokenAccount(
                         address = account.pubkey,
